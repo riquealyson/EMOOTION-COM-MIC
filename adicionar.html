@@ -71,8 +71,7 @@
             padding: 10px;
             display: flex;
             flex-wrap: wrap;
-            object-fit:fill;
-            
+            object-fit: fill;
         }
 
         .emotions-tab img {
@@ -89,6 +88,12 @@
             border-radius: 5px;
             margin-top: 10px;
         }
+
+        .recording-message {
+            font-size: 14px;
+            margin-left: 10px;
+            color: #23c2c5;
+        }
     </style>
 </head>
 <body>
@@ -101,8 +106,9 @@
         </div>
         <div class="footer">
             <button onclick="mostrarMensagem()">Salvar</button>
-            <button onclick="redirectToAnotherPage()">Voltar</button>
-            <button onclick="getAudioStream()">Gravar Áudio</button>
+            <button onclick="gravarAudio()">Gravar Áudio</button>
+            <button onclick="pararGravacao()">Parar Gravação</button>
+            <button onclick="excluirAudio()">Excluir Áudio</button>
         </div>
         <div class="emotions-tab">
             <span>Emoções:</span>
@@ -125,70 +131,46 @@
             mensagem.classList.add('message');
             mensagem.textContent = 'Humor do dia salvo com sucesso';
             document.querySelector('.container').appendChild(mensagem);
-            setTimeout(function() {
+            setTimeout(function () {
                 mensagem.remove();
             }, 3000);
-            document.body.appendChild(selectedEmotion);
-
-            setTimeout(function() {
-                mensagem.remove();
-                selectedEmotion.remove();
-            }, 3000);
-
         }
-        
-        function redirectToAnotherPage() {
-            window.location.href = "index.html";
-        } 
 
-        function getUserMedia(options, successCallback, failureCallback) {
-            var api = navigator.getUserMedia || navigator.webkitGetUserMedia ||
-                navigator.mozGetUserMedia || navigator.msGetUserMedia;
-            if (api) {
-                return api.bind(navigator)(options, successCallback, failureCallback);
+        function pararGravacao() {
+            if (theRecorder && theStream) {
+                theRecorder.stop();
+                theStream.getTracks().forEach(track => track.stop());
+                var recordingMessage = document.getElementById('recordingMessage');
+                recordingMessage.style.display = 'none';
             }
         }
 
-        var theStream;
-        var theRecorder;
-        var recordedChunks = [];
-
-        function getStream() {
-            if (!navigator.getUserMedia && !navigator.webkitGetUserMedia &&
-                !navigator.mozGetUserMedia && !navigator.msGetUserMedia) {
-                alert('User Media API not supported.');
+        function reproduzirAudioAutomaticamente() {
+            if (recordedChunks.length === 0) {
+                alert('Nenhum áudio gravado ainda.');
                 return;
             }
-
-            var constraints = { video: true, audio: true };
-            getUserMedia(constraints, function (stream) {
-                var mediaControl = document.querySelector('video');
-
-                if ('srcObject' in mediaControl) {
-                    mediaControl.srcObject = stream;
-                } else if (navigator.mozGetUserMedia) {
-                    mediaControl.mozSrcObject = stream;
-                } else {
-                    mediaControl.src = (window.URL || window.webkitURL).createObjectURL(stream);
-                }
-
-                theStream = stream;
-                try {
-                    recorder = new MediaRecorder(stream, { mimeType: "video/webm" });
-                } catch (e) {
-                    console.error('Exception while creating MediaRecorder: ' + e);
-                    return;
-                }
-                theRecorder = recorder;
-                console.log('MediaRecorder created');
-                recorder.ondataavailable = recorderOnDataAvailable;
-                recorder.start(100);
-            }, function (err) {
-                alert('Error: ' + err);
-            });
+            var blob = new Blob(recordedChunks, { type: 'audio/webm' });
+            var audioURL = URL.createObjectURL(blob);
+            var audio = new Audio(audioURL);
+            audio.controls = true;
+            document.body.appendChild(audio);
+            audio.play();
         }
 
-        function getAudioStream() {
+        function excluirAudio() {
+            if (recordedChunks.length === 0) {
+                alert('Nenhum áudio gravado para excluir.');
+                return;
+            }
+            recordedChunks = []; 
+            var audioElement = document.querySelector('audio');
+            if (audioElement) {
+                audioElement.parentNode.removeChild(audioElement); 
+            }
+        }
+
+        function gravarAudio() {
             if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
                 alert('getUserMedia is not supported in this browser.');
                 return;
@@ -198,56 +180,37 @@
 
             navigator.mediaDevices.getUserMedia(constraints)
                 .then(function (stream) {
-                    var mediaControl = document.createElement('audio');
-                    mediaControl.controls = true;
-                    document.body.appendChild(mediaControl);
-
-                    if ('srcObject' in mediaControl) {
-                        mediaControl.srcObject = stream;
-                    } else {
-                        mediaControl.src = (window.URL || window.webkitURL).createObjectURL(stream);
-                    }
-
                     theStream = stream;
                     try {
-                        recorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
+                        theRecorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
                     } catch (e) {
                         console.error('Exception while creating MediaRecorder: ' + e);
                         return;
                     }
-                    theRecorder = recorder;
                     console.log('MediaRecorder created');
-                    recorder.ondataavailable = recorderOnDataAvailable;
-                    recorder.start(100);
+                    theRecorder.ondataavailable = recorderOnDataAvailable;
+                    theRecorder.start(100);
+                    var recordingMessage = document.getElementById('recordingMessage');
+                    recordingMessage.style.display = 'inline';
+                    theRecorder.onstop = function () {
+                        reproduzirAudioAutomaticamente();
+                        recordingMessage.style.display = 'none';
+                    };
                 })
                 .catch(function (err) {
                     console.error('Error accessing the microphone: ' + err);
                 });
         }
 
+        var theStream;
+        var theRecorder;
+        var recordedChunks = [];
+
         function recorderOnDataAvailable(event) {
             if (event.data.size == 0) return;
             recordedChunks.push(event.data);
         }
-
-        function download() {
-            console.log('Saving data');
-            theRecorder.stop();
-            theStream.getTracks()[0].stop();
-
-            var blob = new Blob(recordedChunks, { type: "video/webm" });
-            var url = (window.URL || window.webkitURL).createObjectURL(blob);
-            var a = document.createElement("a");
-            document.body.appendChild(a);
-            a.style = "display: none";
-            a.href = url;
-            a.download = 'test.webm';
-            a.click();
-
-            setTimeout(function () {
-                (window.URL || window.webkitURL).revokeObjectURL(url);
-            }, 100);
-        }
     </script>
+    <div id="recordingMessage" class="recording-message" style="display: none;">Gravando...</div>
 </body>
 </html>
